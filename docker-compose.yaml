@@ -1,0 +1,88 @@
+services:
+  spark:
+    image: apache/spark:latest
+    container_name: spark-master
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark", "--port", "7077", "--webui-port", "8080"]
+    ports:
+      - '8088:8080'
+      - '7077:7077'
+    environment:
+      - SPARK_MASTER_HOST=spark
+    networks:
+      - de-network
+  spark-worker:
+    image: apache/spark:latest
+    container_name: spark-worker
+    depends_on:
+      - spark
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark:7077", "--cores", "1", "--memory", "1g", "--webui-port", "8081"]
+    ports:
+      - '8081:8081'
+    environment:
+      - SPARK_MASTER_URL=spark://spark:7077
+    networks:
+      - de-network
+
+  airflow:
+    image: apache/airflow:3.1.8
+    command: standalone
+    ports:
+      - "8085:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+    networks:
+      - de-network
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    volumes:
+      - "kafka_data:/var/lib/kafka/data"
+    environment:
+      # KRaft settings
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      # Listeners
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,PLAINTEXT_HOST://:29092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      # Single-node defaults for internal topics
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      # Required for KRaft metadata formatting on first startup
+      - CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk
+    networks:
+      - de-network
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"   # API (S3)
+      - "9001:9001"   # Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - de-network
+
+networks:
+  de-network:
+    driver: bridge
+volumes:
+  kafka_data:
+    driver: local
+  minio_data:
+    driver: local
